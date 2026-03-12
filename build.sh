@@ -13,6 +13,7 @@ gcc -c ../list.c
 gcc -c ../ini.c 
 gcc -c ../evdev_helpers.c $evdev_flags
 gcc -c ../uinput.c        $evdev_flags
+gcc -c ../keymaps.c        $evdev_flags
 gcc -c ../main.c          $evdev_flags
 
 gcc *.o -o ../${binary_name} $evdev_flags

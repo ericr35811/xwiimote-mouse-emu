@@ -7,6 +7,8 @@
 #include <fcntl.h>                     // open(), O_*
 #include "evdev_helpers.h"             // match_device()
 #include "uinput.h"                    // uinput_create()
+#include "keymaps.h"
+#include "ini.h"
 
 #define ANG_VEL_THRESHOLD 50
 #define N_SUBPIXELS 900
@@ -52,11 +54,13 @@ int scale_and_accumulate_remainder(int *acc, int vel, int ang_vel_threshold, int
     return v;
 }
 
+
+
 int main() {
-    int rc, fd;
+    int rc, fd, k;
     int vx = 0, vy = 0, accx = 0, accy = 0;
 
-    struct libevdev *dev = NULL;
+    struct libevdev *mpdev = NULL;
     struct libevdev_uinput *ui = NULL;
     struct input_event ev;
     struct motionplus mp = {
@@ -65,8 +69,12 @@ int main() {
         .vz = 0,
     };
 
-    rc = match_device(&dev, "^Nintendo Wii Remote Motion Plus$"); // will error out and exit if a device is not found
+    struct keymap keymap;
+    struct list *store;
+    store = ini_parse("./test.ini");
 
+    keymap_populate_err(&keymap, store);
+    rc = match_device(&mpdev, ini_get_str(store, "Options", "MotionPlusDeviceName")); // will error out and exit if a device is not found
     if (rc != 0) 
         return 1; 
 
@@ -81,10 +89,10 @@ int main() {
     if (ui == NULL)
         return 1;
 
-    printf("%s\n", libevdev_get_name(dev));
+    printf("%s\n", libevdev_get_name(mpdev));
 
     do {
-        rc = libevdev_next_event(dev, LIBEVDEV_READ_FLAG_NORMAL|LIBEVDEV_READ_FLAG_BLOCKING, &ev);
+        rc = libevdev_next_event(mpdev, LIBEVDEV_READ_FLAG_NORMAL|LIBEVDEV_READ_FLAG_BLOCKING, &ev);
         if (rc == LIBEVDEV_READ_STATUS_SUCCESS) {
             //print_event(&ev);
 
@@ -97,6 +105,20 @@ int main() {
                 }
                 else if (ev.code == ABS_RZ) {
                     mp.vz = ev.value;
+                }
+            }
+            else if (ev.type == EV_KEY) {
+                k = keymap_translate(&keymap, ev.code);
+
+                switch (k) {
+                    case SKEY_ERR:
+                    case SKEY_UNBOUND:
+                    case SKEY_SCROLL:
+                        break;
+                    default:
+                        libevdev_uinput_write_event(ui, EV_KEY, k, ev.value);
+                        libevdev_uinput_write_event(ui, EV_SYN, SYN_REPORT, 0);
+                        break;
                 }
             }
             else if (ev.type == EV_SYN) {
@@ -120,8 +142,8 @@ int main() {
     // cleanup
     close(fd);
 
-    fd = libevdev_get_fd(dev);
-    libevdev_free(dev);
+    fd = libevdev_get_fd(mpdev);
+    libevdev_free(mpdev);
     close(fd);
     
     return 0;
