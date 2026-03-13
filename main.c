@@ -61,6 +61,7 @@ int scale_and_accumulate_remainder(int *acc, int vel, int ang_vel_threshold, int
 int main() {
     int rc, fd, k;
     int vx = 0, vy = 0, accx = 0, accy = 0;
+    int ang_vel_threshold, n_subpixels, xoff, yoff;
 
     struct libevdev *mpdev = NULL, *wmdev = NULL;
     struct libevdev_uinput *ui = NULL;
@@ -77,7 +78,16 @@ int main() {
     struct list *store;
     store = ini_parse("./test.ini");
 
-    keymap_populate_err(&keymap, store);
+    // load key mappings from INI
+    keymap_populate_err(&keymap, store);\
+
+    // load other parameters from INI
+    ang_vel_threshold = ini_get_int(store, "Options", "AngVelThreshold");
+    n_subpixels = ini_get_int(store, "Options", "SubpixelsPerScreenPixel");
+    xoff = ini_get_int(store, "Offsets", "X");
+    yoff = ini_get_int(store, "Offsets", "Y");
+
+    // create libevdev devices for the MotionPlus and Wiimote buttons
     rc = match_device(&mpdev, ini_get_str(store, "Options", "MotionPlusDeviceName")); // will error out and exit if a device is not found
     if (rc != 0) 
         return 1; 
@@ -85,6 +95,7 @@ int main() {
     if (rc != 0) 
         return 1; 
     
+    // set up for using poll() to read events from both devices
     fd = libevdev_get_fd(mpdev);
     MP_POLL.fd = fd;
     MP_POLL.events = POLLIN;
@@ -93,27 +104,27 @@ int main() {
     WM_POLL.fd = fd;
     WM_POLL.events = POLLIN;
 
+    // create uinput device for mouse & keyboard emulation
     fd = open("/dev/uinput", O_RDWR | O_TRUNC);
     if (fd == -1)
         return 1;
-
     ui = uinput_create(fd, &keymap);
-
     if (ui == NULL)
         return 1;
 
-    printf("%s\n", libevdev_get_name(mpdev));
-
     do {
+        // wait indefinitely for either device to have events
         rc = poll(fds, 2, -1);
         if (rc == -1) {
             perror("");
             return 1;
         }
 
+        // if the MotionPlus has input events
         if (MP_POLL.revents & POLLIN) {
             rc = libevdev_next_event(mpdev, LIBEVDEV_READ_FLAG_NORMAL|LIBEVDEV_READ_FLAG_BLOCKING, &ev);
             if (rc == LIBEVDEV_READ_STATUS_SUCCESS) {
+                // store angular velocities
                 if (ev.type == EV_ABS) {
                     if      (ev.code == ABS_RX) {
                         mp.vx = ev.value;
@@ -125,12 +136,13 @@ int main() {
                         mp.vz = ev.value;
                     }
                 }
+                // calculate pointer movements and send them to uinput on SYN
                 else if (ev.type == EV_SYN) {
-                    vx = (mp.vx-100);
-                    vy = -(mp.vz-450);
+                    vx = (mp.vx+xoff);
+                    vy = -(mp.vz+yoff);
 
-                    vx = scale_and_accumulate_remainder(&accx, vx, ANG_VEL_THRESHOLD, N_SUBPIXELS);
-                    vy = scale_and_accumulate_remainder(&accy, vy, ANG_VEL_THRESHOLD, N_SUBPIXELS);
+                    vx = scale_and_accumulate_remainder(&accx, vx, ang_vel_threshold, n_subpixels);
+                    vy = scale_and_accumulate_remainder(&accy, vy, ang_vel_threshold, n_subpixels);
 
                     libevdev_uinput_write_event(ui, EV_REL, REL_X, vx);
                     libevdev_uinput_write_event(ui, EV_REL, REL_Y, vy);
@@ -141,10 +153,12 @@ int main() {
             }
         }
 
+        // if the Wiimote has input events
         if (WM_POLL.revents & POLLIN) {
             rc = libevdev_next_event(wmdev, LIBEVDEV_READ_FLAG_NORMAL|LIBEVDEV_READ_FLAG_BLOCKING, &ev);
             if (rc == LIBEVDEV_READ_STATUS_SUCCESS) {
-              if (ev.type == EV_KEY) {
+                // translate Wiimote button on/off to mapped keys
+                if (ev.type == EV_KEY) {
                     k = keymap_translate(&keymap, ev.code);
 
                     switch (k) {
