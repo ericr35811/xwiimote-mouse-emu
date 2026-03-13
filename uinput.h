@@ -1,6 +1,8 @@
 #ifndef _UINPUT_H
 #define _UINPUT_H
 
-struct libevdev_uinput *uinput_create(int fd);
+#include "keymaps.h"
 
-#endif
+struct libevdev_uinput *uinput_create(int fd, struct keymap *keymap);
+
+#endif      

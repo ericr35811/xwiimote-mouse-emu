@@ -2,13 +2,12 @@
 #include <libevdev/libevdev-uinput.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include "keymaps.h"
 
-struct libevdev_uinput *uinput_create(int fd) {
+struct libevdev_uinput *uinput_create(int fd, struct keymap *keymap) {
     int rc;
     struct libevdev *dev;
     struct libevdev_uinput *ui;
-
-
     dev = libevdev_new();
     libevdev_set_name(dev, "test device");
     
@@ -19,6 +18,18 @@ struct libevdev_uinput *uinput_create(int fd) {
     // this is required for it to be seen as a mouse i guess
     libevdev_enable_event_type(dev, EV_KEY);
     libevdev_enable_event_code(dev, EV_KEY, BTN_LEFT, 0);
+
+    libevdev_enable_event_code(dev, EV_KEY, keymap->a    , NULL);
+    libevdev_enable_event_code(dev, EV_KEY, keymap->b    , NULL);
+    libevdev_enable_event_code(dev, EV_KEY, keymap->home , NULL);
+    libevdev_enable_event_code(dev, EV_KEY, keymap->minus, NULL);
+    libevdev_enable_event_code(dev, EV_KEY, keymap->plus , NULL);
+    libevdev_enable_event_code(dev, EV_KEY, keymap->up   , NULL);
+    libevdev_enable_event_code(dev, EV_KEY, keymap->down , NULL);
+    libevdev_enable_event_code(dev, EV_KEY, keymap->left , NULL);
+    libevdev_enable_event_code(dev, EV_KEY, keymap->right, NULL);
+    libevdev_enable_event_code(dev, EV_KEY, keymap->one  , NULL);
+    libevdev_enable_event_code(dev, EV_KEY, keymap->two  , NULL);
 
     libevdev_enable_event_type(dev, EV_SYN);
     libevdev_enable_event_code(dev, EV_SYN, SYN_REPORT, NULL);
@@ -32,4 +43,3 @@ struct libevdev_uinput *uinput_create(int fd) {
     else
         return ui;
 }
-
