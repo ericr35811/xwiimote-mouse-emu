@@ -2,6 +2,7 @@
 #include <string.h>
 #include <stdlib.h>  
 #include <errno.h>
+#include <ctype.h> // tolower()
 #include "ini.h"
 #include "list.h"
 
@@ -121,6 +122,26 @@ int ini_get_int(struct list *store, char *sec_key, char *val_key) {
     } else {
         return x;
     }
+}
+
+int ini_get_bool(struct list *store, char *sec_key, char *val_key) {
+    char *value, err[256], *p;
+
+    value = ini_get_str(store, sec_key, val_key);
+    p = value;
+    do {
+        *p = tolower(*p);
+    } while (*(++p));
+
+    if (!strcmp(value, "true")) {
+        return 1;
+    } else if (!strcmp(value, "false")) {
+        return 0;
+    } else {
+        sprintf(err, "Could not convert \"%s\" to a bool", value);
+        err_exit(err, 0);
+    }
+
 }
 
 struct list *ini_parse(char *path) {
