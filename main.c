@@ -74,8 +74,7 @@ int main() {
     int rc, fd, k;
     int vx = 0, vy = 0, accx = 0, accy = 0;
     int ang_vel_threshold, n_subpixels, xoff, yoff;
-    int mouse_lock, mouse_lock_delay, mouse_is_locked = 0, t0, t1;
-
+    int mouse_lock_delay = 0, mouse_is_locked = 0, t0, t1;
 
     struct libevdev *mpdev = NULL, *wmdev = NULL;
     struct libevdev_uinput *ui = NULL;
@@ -101,7 +100,6 @@ int main() {
     xoff = ini_get_int(store, "Offsets", "X");
     yoff = ini_get_int(store, "Offsets", "Y");
 
-    mouse_lock = ini_get_bool(store, "Options", "MouseLock");
     mouse_lock_delay = ini_get_int(store, "Options", "MouseLockDelay");
 
     // create libevdev devices for the MotionPlus and Wiimote buttons
@@ -111,8 +109,6 @@ int main() {
     rc = match_device(&wmdev, ini_get_str(store, "Options", "WiimoteDeviceName")); // will error out and exit if a device is not found
     if (rc != 0) 
         return 1; 
-
-    printf("1");
     
     // set up for using poll() to read events from both devices
     fd = libevdev_get_fd(mpdev);
@@ -130,8 +126,6 @@ int main() {
     ui = uinput_create(fd, &keymap);
     if (ui == NULL)
         return 1;
-
-    printf("2");
 
     do {
         // wait indefinitely for either device to have events
@@ -190,11 +184,14 @@ int main() {
                         case BTN_LEFT:
                         case BTN_RIGHT:
                         case BTN_MIDDLE:
-                            if (ev.value == 1) {
-                                t0 = get_current_time_ms();
-                                mouse_is_locked = 1;
-                            } else if (ev.value == 0) {
-                                mouse_is_locked = 0;
+                            // control mouse lock if it is not zero
+                            if (mouse_lock_delay) {
+                                if (ev.value == 1) {
+                                    t0 = get_current_time_ms();
+                                    mouse_is_locked = 1;
+                                } else if (ev.value == 0) {
+                                    mouse_is_locked = 0;
+                                }
                             }
                         default:
                             libevdev_uinput_write_event(ui, EV_KEY, k, ev.value);
@@ -205,10 +202,9 @@ int main() {
             }
         }
 
-        // watch for mouse lock delay to elapse
-        if (mouse_is_locked) {
+        // watch for mouse lock delay to elapse only if delay is not zero
+        if (mouse_is_locked && mouse_lock_delay) {
             t1 = get_current_time_ms();
-            printf("%d\n", t1-t0);
             if ((t1 - t0) > mouse_lock_delay) {
                 mouse_is_locked = 0;
             }
