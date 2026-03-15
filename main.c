@@ -6,6 +6,7 @@
 #include <errno.h>                     // EAGAIN
 #include <fcntl.h>                     // open(), O_*
 #include <sys/poll.h>
+#include <time.h>
 #include "evdev_helpers.h"             // match_device()
 #include "uinput.h"                    // uinput_create()
 #include "keymaps.h"
@@ -58,10 +59,23 @@ int scale_and_accumulate_remainder(int *acc, int vel, int ang_vel_threshold, int
     return v;
 }
 
+int64_t get_current_time_ms() {
+    struct timespec ts;
+    
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) == -1 ) {
+        perror("clock_gettime()");
+        return 1;
+    }
+
+    return (((int64_t)ts.tv_sec)*1000) + (((int64_t)ts.tv_nsec)/1000000);
+}
+
 int main() {
     int rc, fd, k;
     int vx = 0, vy = 0, accx = 0, accy = 0;
     int ang_vel_threshold, n_subpixels, xoff, yoff;
+    int mouse_lock, mouse_lock_delay, mouse_is_locked = 0, t0, t1;
+
 
     struct libevdev *mpdev = NULL, *wmdev = NULL;
     struct libevdev_uinput *ui = NULL;
@@ -87,6 +101,9 @@ int main() {
     xoff = ini_get_int(store, "Offsets", "X");
     yoff = ini_get_int(store, "Offsets", "Y");
 
+    mouse_lock = ini_get_bool(store, "Options", "MouseLock");
+    mouse_lock_delay = ini_get_int(store, "Options", "MouseLockDelay");
+
     // create libevdev devices for the MotionPlus and Wiimote buttons
     rc = match_device(&mpdev, ini_get_str(store, "Options", "MotionPlusDeviceName")); // will error out and exit if a device is not found
     if (rc != 0) 
@@ -94,6 +111,8 @@ int main() {
     rc = match_device(&wmdev, ini_get_str(store, "Options", "WiimoteDeviceName")); // will error out and exit if a device is not found
     if (rc != 0) 
         return 1; 
+
+    printf("1");
     
     // set up for using poll() to read events from both devices
     fd = libevdev_get_fd(mpdev);
@@ -111,6 +130,8 @@ int main() {
     ui = uinput_create(fd, &keymap);
     if (ui == NULL)
         return 1;
+
+    printf("2");
 
     do {
         // wait indefinitely for either device to have events
@@ -137,7 +158,7 @@ int main() {
                     }
                 }
                 // calculate pointer movements and send them to uinput on SYN
-                else if (ev.type == EV_SYN) {
+                else if (ev.type == EV_SYN && !mouse_is_locked) {
                     vx = (mp.vx+xoff);
                     vy = -(mp.vz+yoff);
 
@@ -166,12 +187,30 @@ int main() {
                         case SKEY_UNBOUND:
                         case SKEY_SCROLL:
                             break;
+                        case BTN_LEFT:
+                        case BTN_RIGHT:
+                        case BTN_MIDDLE:
+                            if (ev.value == 1) {
+                                t0 = get_current_time_ms();
+                                mouse_is_locked = 1;
+                            } else if (ev.value == 0) {
+                                mouse_is_locked = 0;
+                            }
                         default:
                             libevdev_uinput_write_event(ui, EV_KEY, k, ev.value);
                             libevdev_uinput_write_event(ui, EV_SYN, SYN_REPORT, 0);
                             break;
                     }
                 }
+            }
+        }
+
+        // watch for mouse lock delay to elapse
+        if (mouse_is_locked) {
+            t1 = get_current_time_ms();
+            printf("%d\n", t1-t0);
+            if ((t1 - t0) > mouse_lock_delay) {
+                mouse_is_locked = 0;
             }
         }
     } while (rc == LIBEVDEV_READ_STATUS_SUCCESS || rc == -EAGAIN);
