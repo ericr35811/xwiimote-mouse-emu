@@ -73,8 +73,11 @@ int64_t get_current_time_ms() {
 int main() {
     int rc, fd, k;
     int vx = 0, vy = 0, accx = 0, accy = 0;
-    int ang_vel_threshold, n_subpixels, xoff, yoff;
+    int ang_vel_threshold, n_subpixels, xoff, yoff, xsign, ysign;
     int mouse_lock_delay = 0, mouse_is_locked = 0, t0, t1;
+
+    int vxmax =0, vxmin = 0, cycle = 0, sumx = 0, nx = 0;
+    int vymax =0, vymin = 0, sumy = 0, ny = 0;
 
     struct libevdev *mpdev = NULL, *wmdev = NULL;
     struct libevdev_uinput *ui = NULL;
@@ -97,8 +100,19 @@ int main() {
     // load other parameters from INI
     ang_vel_threshold = ini_get_int(store, "Options", "AngVelThreshold");
     n_subpixels = ini_get_int(store, "Options", "SubpixelsPerScreenPixel");
-    xoff = ini_get_int(store, "Offsets", "X");
-    yoff = ini_get_int(store, "Offsets", "Y");
+    xoff = ini_get_int(store, "Adjustment", "OffsetX");
+    yoff = ini_get_int(store, "Adjustment", "OffsetY");
+    if (ini_get_bool(store, "Adjustment", "InvertX")) {
+        xsign = -1;
+    } else {
+        xsign = 1;
+    }
+    if (ini_get_bool(store, "Adjustment", "InvertY")) {
+        ysign = -1;
+    } else {
+        ysign = 1;
+    }
+
 
     mouse_lock_delay = ini_get_int(store, "Options", "MouseLockDelay");
 
@@ -153,8 +167,8 @@ int main() {
                 }
                 // calculate pointer movements and send them to uinput on SYN
                 else if (ev.type == EV_SYN && !mouse_is_locked) {
-                    vx = (mp.vx+xoff);
-                    vy = -(mp.vz+yoff);
+                    vx = xsign*(mp.vx+xoff);
+                    vy = ysign*(mp.vz+yoff);
 
                     vx = scale_and_accumulate_remainder(&accx, vx, ang_vel_threshold, n_subpixels);
                     vy = scale_and_accumulate_remainder(&accy, vy, ang_vel_threshold, n_subpixels);
@@ -162,8 +176,44 @@ int main() {
                     libevdev_uinput_write_event(ui, EV_REL, REL_X, vx);
                     libevdev_uinput_write_event(ui, EV_REL, REL_Y, vy);
                     libevdev_uinput_write_event(ui, EV_SYN, SYN_REPORT, 0);
+                    
+                    if (cycle >= 200) {
+                        if (mp.vx > vxmax) {
+                            vxmax = mp.vx;
+                        }
+                        
+                        if (mp.vx < vxmin) {
+                            vxmin = mp.vx;
+                        }
 
-                    //printf("VX: %5d VY: %5d\n", vx, vy); fflush(stdout);
+                        if (mp.vz > vymax) {
+                            vymax = mp.vz;
+                        }
+
+                        if (mp.vz < vymin) {
+                            vymin = mp.vz;
+                        }
+
+                        sumx += mp.vx;
+                        nx++;
+
+                        sumy += mp.vz;
+                        ny++;
+
+                        printf("XThreshold %5d XOffset %5d YThreshold %5d YOffset %5d\n", (vxmax-vxmin)/2, -(sumx/nx), (vymax-vymin)/2, -(sumy/ny));
+                    } else {
+                        vxmax = mp.vx;
+                        vxmin = mp.vx;
+                        vymax = mp.vz;
+                        vymin = mp.vz;
+                        
+                        cycle++;
+                    }
+
+
+                    //printf("VX: %5d VY: %5d %5d %5d\n", mp.vx, mp.vz, vx, vy); fflush(stdout);
+                    
+
                 }
             }
         }
